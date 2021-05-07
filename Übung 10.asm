@@ -19,42 +19,21 @@ StopWDT   mov.w  #WDTPW+WDTHOLD,&WDTCTL          ; Watchdog anhalten (ist standa
 		  mov #0x01, R5
 		  
 LOOP
-                  
-		  RLA R5								; Schieb 15x Null von rechts
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-		  RLA R5
-                  
-          CLRC									; Lösche das Carry Bit
+
+RIGHT
+		cmp #0x8000, R5							; Vergleiche ob linkes Ende erreicht
+		JZ LEFT									; wenn ja, springe zur anderen Schleife
+		RLA R5									; Schieb 15x Null von rechts
+		JMP RIGHT								; Wiederholung
+
+
 		  
-		  RRC R5								; Schieb 15x Null von links
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  RRC R5
-		  
-		  JMP LOOP
+LEFT
+		cmp #0x1, R5							; Vergleiche ob rechts Ende erreicht
+		JZ RIGHT								; wenn ja, springe zur anderen Schleife
+		CLRC									; Lösche das Carry Bit
+		RRC R5									; Schieb  Null von links
+		JMP LEFT								; Wiederholung
 	  
 	  
 
