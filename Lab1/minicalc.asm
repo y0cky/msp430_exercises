@@ -1,7 +1,7 @@
 ;***************************************************************************************************************
 ;   Mini Taschenrechner 
 ;
-;   Über den Button S1 werden zwei Zahlen eingegeben, welche anschließend summiert und durch Blinken ausgegeben werden.  
+;   Über den Button S1 werden zwei Zahlen eingegeben, welche anschließend summiert und nach dem betätigen von Button S2 durch Blinken ausgegeben werden.  
 ;
 ;   Johannes Wilhelm
 ;   Hochschule Mannheim
@@ -10,8 +10,6 @@
 
 #include "msp430f5529.h"
 
-;hier ein paar Definitonen, so dass das Programm unten besser lesbar wird
-;
 Button_S1       SET     0x02                         ; Taster an Port P2.1
 Button_S2       SET     0x02                         ; Taster an Port P1.1 (der Name S2 stammt aus dem Schaltplan des LaunchPad, siehe LaunchPad-Userguide "slau533b" auf Seite 57)
 
@@ -45,12 +43,12 @@ Port_4          BIS.b   #BIT7,&P4DIR            ; Port P4.7 als Ausgang konfigur
                 BIS.b   #BIT7,&P4OUT            ; LED an Port 4.7 einschalten zu Programmbeginn (1 = "an")
 
 
-                MOV     #0x00, R5               ; Initialisierung  erster Summand
-                MOV     #0x00, R6               ; Initialisierung  zweiter Summand
+                MOV     #0x00, R5               ; Initialisierung erster Summand
+                MOV     #0x00, R6               ; Initialisierung zweiter Summand
                 MOV     #0x00, R8               ; Initialisierung Programmstatusregister (0: Eingebe erste Summand, 1: Eingabe zweiter Summand)
           
 Main        
-                BIS.W #GIE, SR                  ; global Interruptsystem aktivieren
+                BIS.W   #GIE, SR                ; global Interruptsystem aktivieren
                 NOP
                 
                 JMP     Main                    ; Endlosschleife
@@ -58,24 +56,23 @@ Main
                                           
 ;+++ ISR ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++                                         
 
-; Button_S2
+; +++ Button_S2 +++
 PORT1_ISR
 
-                MOV.w   #50000,R15  
-Entprellen2     DEC.w   R15                     ; Decrement R15
-                JNZ     Entprellen2             ; Springe zu Entprellen wenn R15 noch nicht 0 ist
+                MOV.w   #50000,R15              ; initialisiere den Schleifenzähler R15 mit dem Startwert 50000
+                CALL    #DelayLoop              ; Schleife als Verzögerung zum Entprellen
                 
                 BIC.b   #BIT1, &P1IFG           ; das gesetzte Interruptflag löschen, sonst würde ISR sofort wieder neu ausgelöst werden
                
-                CMP     #0x01, R8               ; Vergleiche ob der zweite Summand schon eingegeben wurde
+                CMP     #0x01, R8               ; Vergleiche ob R8<1 ist, also ob der zweite Summand schon eingegeben wurde
                 JZ AUSGABE                      ; Wenn ja, springe zur Ausgabe
 
                 MOV     #0x01, R8               ; Wenn nein, änder Programmstatus für Eingabe des zweiten Summanden 
-                RETI
-
+                RETI                            ; beende Interruptroutine
 
 ; Ausgabe der Summe durch Blinken der roten LED
-AUSGABE         ADD     R5, R6                  ; Addiere die zwei Summanten n+m
+
+AUSGABE         ADD     R5, R6                  ; Addiere die zwei Summanten R5+R6 und speicher das Ergebnis in R6
                 BIC.b   #BIT7,&P4OUT            ; keine Eingebebereitschaft, Grüne LED AUS
 
 BLINK           CMP     #0x00, R6               ; Vergleiche ob das Ergebnis in R6 Null ist
@@ -83,55 +80,57 @@ BLINK           CMP     #0x00, R6               ; Vergleiche ob das Ergebnis in 
 
                 BIS.b   #BIT0,&P1OUT            ; LED Rot AN
 
-                MOV.w   #50000,R15              ; Dauer der Verzögerung
-                CALL #DelayLoop                 ; Verzögerungsschleife aufrufen
+                MOV.w   #50000,R15              ; initialisiere den Schleifenzähler R15 mit dem Startwert 50000
+                CALL #DelayLoop                 ; Verzögerungsschleife aufrufen damit LED nicht sofort aus geht
 
                 BIC.b   #BIT0,&P1OUT            ; LED Rot AUS
 
-                MOV.w   #50000,R15              ; Dauer der Verzögerung
-                CALL #DelayLoop                 ; Verzögerungsschleife aufrufen
+                MOV.w   #50000,R15              ; initialisiere den Schleifenzähler R15 mit dem Startwert 50000
+                CALL #DelayLoop                 ; Verzögerungsschleife aufrufen damit LED nicht sofort an geht
 
                 DEC     R6                      ; Ergebnis runterzählen (so oft wird noch geblinkt)
                 JMP BLINK                       ; Wiederhole das Blinken
 
-DelayLoop       DEC     R15                     ; Verzögerungsschleife
-                JNZ DelayLoop
-                RET
-
 ; Neustart des Programm nach Ausgabe
+
 RESTART         MOV     #0x00, R5                    ; Erste Summand auf null
                 MOV     #0x00, R6                    ; Zweiter Summand auf null
                 
                 MOV     #0x00, R8                    ; Programmstatusregister auf null
 
-                BIS.b   #BIT7,&P4OUT                 ; Eingebebereitschaft, LED Grün AN
-                RETI
+                BIS.b   #BIT7,&P4OUT                 ; Eingebebereitschaft, grüne LED AN
+                RETI                                 ; beende Interruptroutine
 
 
-; Button_S1
+; +++ Button_S1 +++
+
 PORT2_ISR
 
-                MOV.w   #50000,R15
-Entprellen      DEC.w   R15                     ; Decrement R15
-                JNZ     Entprellen              ; Springe zu Entprellen wenn R15 noch nicht 0 ist
+                MOV.w   #50000,R15              ; initialisiere den Schleifenzähler R15 mit dem Startwert 50000
+                CALL    #DelayLoop              ; Schleife als Verzögerung zum Entprellen
+
 
                 BIC.b   #BIT1, &P2IFG           ; das gesetzte Interruptflag löschen, sonst würde ISR sofort wieder neu ausgelöst werden
 
                 CMP     #0x01, R8               ; Vergleiche den aktuellen Programmstatus
-                JZ      NEXT                    ; Springe zu next wenn der zweite Summand eingegeben wird
+                JZ      NEXT                    ; Springe zu NEXT wenn der zweite Summand eingegeben wird
 
                 INC     R5                      ; sonnst erhöhe den ersten Summand um eins
-                RETI
+                RETI                            ; beende Interruptroutine
 
 NEXT            INC     R6                      ; erhöhe den zweiten Summand um eins
                 RETI                            ; eine Interruptroutine muss immer mit dem Befehl RETI abgeschlossen werden
 
 
+; +++ Funktionen +++
 
+; Verzögerungsschleife
 
+DelayLoop       DEC     R15                     ; Register R5 um 1 verringern
+                JNZ DelayLoop                   ; Wiederholung bis R15=0
+                RET                             ; Zurück zum Funktionsaufruf
 
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
 
 ;-------------------------------------------------------------------------------
 ;           Interrupt Vectors
