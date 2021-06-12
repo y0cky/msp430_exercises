@@ -14,7 +14,7 @@ StopWDT         MOV.w   #WDTPW+WDTHOLD,&WDTCTL  ; Watchdog Timer anhalten
 
                 MOV     #0x00, R5               ; Initialisierung Timer
           
-Main            mov.w   #TASSEL_2+MC0,&TA0CTL   ; ACLK=32,768 kHz als Taktquelle, Up-Mode (zählt von 0x0000 bis TA0CCR0), hier keinen Interrupt aktivieren --> es wird NICHT der TAIFG genutzt in diesem Beispiel, sondern der TA0CCRO-Interrupt !!! 
+Main            mov.w   #TASSEL_2+MC0,&TA0CTL   ; SMCTL=1,048 Mhz, Up-Mode 
                 mov.w   #CCIE,&TA0CCTL0         ; aktiviere TA0CCR0-Capture/Compare Interrupt (wird immer ausgelöst, wenn der Timer_A bis zu dem Wert in Register TA0CCR0 hochgezählt hat)        
                 mov.w   #1 ,&TA0CCR0            ; bis zu diesem Wert wird hochgezählt, dann gibt es einen ersten Interrupt und der Timer beginnt automatisch wieder bei Null zu zählen (32768 entsprechen 1s bei 32,768 kHz Zählfrequenz)
                 mov.b   #0x00,&UCA1IFG          ; alle Interruptflags löschen, falls zufällig gesetzt
