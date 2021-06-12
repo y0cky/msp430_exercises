@@ -56,11 +56,16 @@ main                                            ; Mainloop
 
 ;+++ UART_RxD_ISR ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 UART_RxD_ISR    nop
-                mov.b   &UCA1RXBUF, R5      ; Save ASCII 0 in R5
+                
+                
+                ; Read 1-4 digits via UART in R5-R8
+                ; read UART input buffer for 3 ASCII in R5 - R8
+
+UARTRX          mov.b   &UCA1RXBUF, R5      ; Save ASCII 0 in R5
 
                 CLRZ
                 cmp.b   #0x0A,R5            ; Test if Rx=R5 is LF
-                JZ      CALC                ; JMP if it was LF
+                JZ      OVER                ; JMP if it was
                 sub.b   #0x30,R5            ; if not, Convert ASCII in Number
                
 WAITUART        bit.b   #UCRXIFG, &UCA1IFG  ; Wait for ASCII 1
@@ -69,7 +74,7 @@ WAITUART        bit.b   #UCRXIFG, &UCA1IFG  ; Wait for ASCII 1
                 mov.b   &UCA1RXBUF,R6       ; Save ASCII 1 in R6
                 CLRZ
                 cmp.b   #0x0A,R6            ; Test if Rx=R6 is LF
-                JZ      CALC                ; JMP if it was
+                JZ      OVER                ; JMP if it was
                 sub.b   #0x30,R6            ; if not, Convert ASCII in Number
   
 WAITUART2       bit.b   #UCRXIFG, &UCA1IFG  ; Wait for ASCII 2
@@ -78,7 +83,7 @@ WAITUART2       bit.b   #UCRXIFG, &UCA1IFG  ; Wait for ASCII 2
                 mov.b   &UCA1RXBUF, R7      ; Save ASCII 2 in R7
                 CLRZ
                 cmp.b   #0x0A,R7            ; Test if Rx=R7 is LF
-                JZ      CALC                ; JMP if it was
+                JZ      OVER                ; JMP if it was
                 sub.b   #0x30,R7            ; if not, Convert ASCII in Number
 
 WAITUART3       bit.b   #UCRXIFG, &UCA1IFG; Wait for ASCII 3
@@ -87,16 +92,38 @@ WAITUART3       bit.b   #UCRXIFG, &UCA1IFG; Wait for ASCII 3
                 mov.b   &UCA1RXBUF, R8      ; Save ASCII 3 in R8
                 CLRZ
                 cmp.b   #0x0A,R8            ; Test if Rx=R8 is LF
-                JZ      CALC                ; JMP if it was
+                JZ      OVER                ; JMP if it was
                 sub.b   #0x30,R8            ; if not, Convert ASCII in Number
+OVER
+
+
+                CALL    #CALC                   ; Add the digits according to the decimal system and store the result in R10
+
+                CALL    #BINPRINT               ; output the binary number in R10 via UART in ASCII
+          
+                mov.b   #0x2B ,R4               ; send ASCII + via UART
+                CALL    #SENDUART
+
+                CALL    #TIMER_PRINT            ; output the counted time [us] for calculation via UART in ASCII
+                
+                mov.b   #0x0A ,R4               ; send ASCII LF via UART
+                CALL    #SENDUART
+                
+                JMP     Register_Init           ; Jump to initialization, reset program and repeat
+                
+                reti
+                
+
+;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
 ; Calculation: add the input numbers to R10
 
-; Case distinction: how many digits? Choose register appropriately
+
 CALC            nop
                 mov.w   #TACLR+TASSEL1+MC1,&TA0CTL   ; Reset Timer and start to count ( SMCTL=1,048 Mhz, Continuous-Mode )
 
+                ; Case distinction: how many digits? Choose register appropriately
                 cmp.b   #0x0A,R8            ; Test if R8 is LF
                 JZ      THREEDIGITS         ; 
                 
@@ -106,11 +133,9 @@ CALC            nop
                 cmp.b   #0x0A,R6            ; Test if R6 is LF
                 JZ      ONEDIGIT
                 
+                
                 cmp.b   #0x0A,R5            ; Test if R5 is LF
-                JZ      OUTPUT              ; no input, suspend calculation
-
-
-
+                RET                         ; no input, suspend calculation
 
 THREEDIGITS                                 ; 3 digits input
                 add     R7, R10             ; add unit to R10
@@ -127,7 +152,7 @@ HUNDERTER       add     R5, R10             ; add hundred  to R10
                 dec     R15
                 JNZ     HUNDERTER 
                 
-                JMP     OUTPUT              ; Calculation finished
+                RET                         ; Calculation finished
 
 
 TWODIGITS                                   ; 2 digits input
@@ -137,19 +162,21 @@ TWODIGITS                                   ; 2 digits input
                 mov.B   #10, R15            ; repeat ten times
 TEN2            add     R5, R10             ; add tens to R10
                 dec     R15
-                JNZ     TEN2
+                RET
                 
-                JMP     OUTPUT              ; Calculation finished
+                RET                         ; Calculation finished
                 
 ONEDIGIT                                    ; 1 digit input
                 add     R5, R10             ; add unit to R10
 
-                JMP     OUTPUT
+                RET
+                
+                
+                
+; output the entered number in binary by shifting the register R10
 
+BINPRINT        mov.w   TA0R, R13           ; store time count in R13
 
-; output the entered number in bits by shifting the register R10
-
-OUTPUT          mov.w   TA0R, R13           ; store time count in R13
                 mov.B   #0, R14             ; as long as zero until the first one has been output
                 CLRZ
                 mov.B   #16, R15            ; set count for the output of 16 bit
@@ -159,7 +186,7 @@ LOOP
                 ; case distinction: Carry bit = 0 or 1
                 JC      ONE                     
                 JMP     ZERO
-                reti
+
                 
 ; Carry bit is zero
 ZERO            CLRZ
@@ -169,54 +196,29 @@ ZERO            CLRZ
                 mov.b   #0x30, R4
                 CALL    #SENDUART
 
-;                 mov.b   #0x30,&UCA1TXBUF        ; copy an ASCII 0 into the UART send buffer
-; wait_for_byte1  bit.b   #UCTXIFG,&UCA1IFG       ; test if TX interrupt flag is set. Wait until UCTXIFG = 1
-;                 jz      wait_for_byte1
                 
 NOZERO          CLRZ
                 dec     R15                     ; decrease bit counter 
-                JZ      LF                      ; Output LF if bit counter is zero
+                JZ      FINISH                  ; finish if bit counter is zero
                 JMP     LOOP                    ; if not, repeat
 
 ; Carry bit is one
 ONE             
                 mov.b   #0x31, R4
                 CALL    #SENDUART
-;                mov.b   #0x31,&UCA1TXBUF        ; copy an ASCII 1 into the UART send buffer
-;wait_for_byte2  bit.b   #UCTXIFG,&UCA1IFG       ; test if TX interrupt flag is set. Wait until UCTXIFG = 1
-;                jz      wait_for_byte2
                 
                 mov.B   #1, R14                 ; a one was entered, print next zeros
                 CLRZ
                 dec     R15                     ; decrease bit counter 
-                JZ      LF                      ; Output LF if bit counter is zero
+                JZ      FINISH                  ; finish if bit counter is zero
                 JMP     LOOP                    ; if not, repeat
-                
 
-; Timer
-                
+FINISH          RET
 
 
-                
-                
-; output ends, send LF
-LF              mov.b   #0x2B ,R4
-                CALL    #SENDUART
+; output the entered number in roman
 
-                call    #TIMER_PRINT
-                
-                mov.b   #0x0A ,R4
-                CALL    #SENDUART
-                
-                JMP     Register_Init           ; Jump to initialization, reset program and repeat
-                
-                
-                
-                reti
-                
-
-;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
+ROMANPRINT      
 
                 
 TIMER_PRINT     ; convert measured time value from binary to decimal and print it
@@ -227,7 +229,7 @@ TIMER_PRINT     ; convert measured time value from binary to decimal and print i
 CALCHUNDREDS    sub     #100, R13
                 JN      CALCTENS
                 inc     R7
-                JMP     HUNDERT
+                JMP     CALCHUNDREDS
                 
 CALCTENS        add     #100, R13
 LOOP_T          sub     #10, R13
