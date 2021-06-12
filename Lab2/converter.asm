@@ -41,6 +41,9 @@ Register_Init   ;
                 mov.w   #0x00, R7               ; ASCII 2
                 mov.w   #0x00, R8               ; ASCII 3
                 mov.w   #0x00, R10              ; Sum
+                mov.w   #0x00, R13              ; Timer
+
+                
                 
                 
 main                                            ; Mainloop
@@ -92,6 +95,8 @@ WAITUART3       bit.b   #UCRXIFG, &UCA1IFG; Wait for ASCII 3
 
 ; Case distinction: how many digits? Choose register appropriately
 CALC            nop
+                mov.w   #TACLR+TASSEL1+MC1,&TA0CTL   ; Reset Timer and start to count ( SMCTL=1,048 Mhz, Continuous-Mode )
+
                 cmp.b   #0x0A,R8            ; Test if R8 is LF
                 JZ      THREEDIGITS         ; 
                 
@@ -144,7 +149,8 @@ ONEDIGIT                                    ; 1 digit input
 
 ; output the entered number in bits by shifting the register R10
 
-OUTPUT          mov.B   #0, R14             ; as long as zero until the first one has been output
+OUTPUT          mov.w   TA0R, R13           ; store time count in R13
+                mov.B   #0, R14             ; as long as zero until the first one has been output
                 CLRZ
                 mov.B   #16, R15            ; set count for the output of 16 bit
 LOOP            
@@ -158,22 +164,27 @@ LOOP
 ; Carry bit is zero
 ZERO            CLRZ
                 cmp.b   #0, R14                 ; check if ever entered a one
-                JZ      wait_for_byte1          ; in not, no output. Jump to next bit
+                JZ      NOZERO                  ; in not, no output. Jump to next bit
 
-                mov.b   #0x30,&UCA1TXBUF        ; copy an ASCII 0 into the UART send buffer
-wait_for_byte1  bit.b   #UCTXIFG,&UCA1IFG       ; test if TX interrupt flag is set. Wait until UCTXIFG = 1
-                jz      wait_for_byte1
+                mov.b   #0x30, R4
+                CALL    #SENDUART
+
+;                 mov.b   #0x30,&UCA1TXBUF        ; copy an ASCII 0 into the UART send buffer
+; wait_for_byte1  bit.b   #UCTXIFG,&UCA1IFG       ; test if TX interrupt flag is set. Wait until UCTXIFG = 1
+;                 jz      wait_for_byte1
                 
-                CLRZ
+NOZERO          CLRZ
                 dec     R15                     ; decrease bit counter 
                 JZ      LF                      ; Output LF if bit counter is zero
                 JMP     LOOP                    ; if not, repeat
 
 ; Carry bit is one
 ONE             
-                mov.b   #0x31,&UCA1TXBUF        ; copy an ASCII 1 into the UART send buffer
-wait_for_byte2  bit.b   #UCTXIFG,&UCA1IFG       ; test if TX interrupt flag is set. Wait until UCTXIFG = 1
-                jz      wait_for_byte2
+                mov.b   #0x31, R4
+                CALL    #SENDUART
+;                mov.b   #0x31,&UCA1TXBUF        ; copy an ASCII 1 into the UART send buffer
+;wait_for_byte2  bit.b   #UCTXIFG,&UCA1IFG       ; test if TX interrupt flag is set. Wait until UCTXIFG = 1
+;                jz      wait_for_byte2
                 
                 mov.B   #1, R14                 ; a one was entered, print next zeros
                 CLRZ
@@ -181,17 +192,85 @@ wait_for_byte2  bit.b   #UCTXIFG,&UCA1IFG       ; test if TX interrupt flag is s
                 JZ      LF                      ; Output LF if bit counter is zero
                 JMP     LOOP                    ; if not, repeat
                 
+
+; Timer
+                
+
+
+                
+                
 ; output ends, send LF
-LF              
-                mov.b   #0x0A,&UCA1TXBUF        ; copy an ASCII "LF" into the UART send buffer
-wait_for_byte3  bit.b   #UCTXIFG,&UCA1IFG       ; test if TX interrupt flag is set. Wait until UCTXIFG = 1
-                jz      wait_for_byte3
+LF              mov.b   #0x2B ,R4
+                CALL    #SENDUART
+
+                call    #TIMER_PRINT
+                
+                mov.b   #0x0A ,R4
+                CALL    #SENDUART
+                
                 JMP     Register_Init           ; Jump to initialization, reset program and repeat
+                
+                
                 
                 reti
                 
 
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+                
+TIMER_PRINT     ; convert measured time value from binary to decimal and print it
+                mov.w   #0x00, R5               ; ONES
+                mov.w   #0x00, R6               ; TENS
+                mov.w   #0x00, R7               ; HUNDREDS
+
+CALCHUNDREDS    sub     #100, R13
+                JN      CALCTENS
+                inc     R7
+                JMP     HUNDERT
+                
+CALCTENS        add     #100, R13
+LOOP_T          sub     #10, R13
+                JN      CALCONES
+                inc     R6
+                JMP     LOOP_T    
+                
+CALCONES        add     #10, R13
+                mov.w   R13, R5
+
+                add     #0x30, R5               ; add ASCII offset
+                add     #0x30, R6
+                add     #0x30, R7
+                
+SENDHUNDRED     cmp     #0x30, R7               ; if zero, skip
+                JZ      SENDTENS
+
+                mov.b   R7 ,R4
+                CALL    #SENDUART
+                
+SENDTENS        cmp     #0x30, R6
+                JZ      SENDONES
+                
+                mov.b   R6 ,R4
+                CALL    #SENDUART
+                
+SENDONES        mov.b   R5 ,R4
+                CALL    #SENDUART
+                
+SENDUNIT        mov.b   #0x75 ,R4
+                CALL    #SENDUART
+                
+                mov.b   #0x73 ,R4
+                CALL    #SENDUART
+                
+                RET
+                
+
+SENDUART        ; TX R4 via uART
+                mov.b   R4 ,&UCA1TXBUF          ; copy an ASCII into the UART send buffer
+wait_for_byte   bit.b   #UCTXIFG,&UCA1IFG       ; test if TX interrupt flag is set. Wait until UCTXIFG = 1
+                jz      wait_for_byte
+                RET
 
 ;-------------------------------------------------------------------------------
 ;           Interrupt Vectors
